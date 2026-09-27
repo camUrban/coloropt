@@ -1,4 +1,5 @@
 import click
+import colour
 import logging
 import os
 import uuid
@@ -21,6 +22,8 @@ from colortools import *
               help='number of colors when --hues is not given')
 @click.option('--seed', type=int, default=None,
               help='random seed for the initial hues (default: random, logged)')
+@click.option('--reorder/--no_reorder', default=True,
+              help='reorder the result so each leading sub-palette scores well, or sort it by hue (default: reorder)')
 @click.option('--c_from', type=float, default=50, help='a')
 @click.option('--c_to', type=float, default=75, help='b')
 @click.option('--h_from', type=float, default=0, help='c')
@@ -28,7 +31,7 @@ from colortools import *
 @click.option('--l_from', type=float, default=40, help='a')
 @click.option('--l_to', type=float, default=75, help='b')
 @click.option('--logname', type=str, default=None, help='log file name in logs/, without .log (default: random run id)')
-def main(weights, hues, n_colors, seed, c_from, c_to, h_from, h_to, l_from, l_to, logname):
+def main(weights, hues, n_colors, seed, reorder, c_from, c_to, h_from, h_to, l_from, l_to, logname):
     weights = np.array(weights)
     if hues is not None:
         hues = np.array([int(h) for h in hues.split(',')])
@@ -62,7 +65,7 @@ def main(weights, hues, n_colors, seed, c_from, c_to, h_from, h_to, l_from, l_to
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     log_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', f'{logname}.log')
-    file_handler = logging.FileHandler(log_filename)
+    file_handler = logging.FileHandler(log_filename, mode='w')
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
 
@@ -72,7 +75,7 @@ def main(weights, hues, n_colors, seed, c_from, c_to, h_from, h_to, l_from, l_to
 
     root.handlers = [file_handler, console_handler]
 
-    root.info(f'Starting with parameters: weights={weights} hues={hues} seed={seed} c_from={c_from} c_to={c_to} h_from={h_from} h_to={h_to} l_from={l_from} l_to={l_to}')
+    root.info(f'Starting with parameters: weights={weights} hues={hues} seed={seed} reorder={reorder} c_from={c_from} c_to={c_to} h_from={h_from} h_to={h_to} l_from={l_from} l_to={l_to}')
     x0 = []
     for h in hues:
         x0.extend([(l_from+l_to)/2, (c_from+c_to)/2, h])
@@ -81,7 +84,10 @@ def main(weights, hues, n_colors, seed, c_from, c_to, h_from, h_to, l_from, l_to
     for l, c, h in zip(*[iter(res.x)]*3):
         colors.append(clamp(lch_to_srgb(l, c, h)))
     seeds = [clamp(lch_to_srgb(l, c, h)) for l, c, h in zip(*[iter(x0)]*3)]
-    order = subpalette_order(colors, weights)
+    if reorder:
+        order = subpalette_order(colors, weights)
+    else:
+        order = np.argsort(colour.Lab_to_LCHab(srgb_to_lab(np.array(colors)))[:, 2])
     colors = [colors[i] for i in order]
     seeds = [seeds[i] for i in order]
     root.info(f'Score={multicolor_cost(colors, weights)} colors: {list(map(lambda x: tuple(int(v) for v in np.floor(0.5 + x*255)), colors))}')

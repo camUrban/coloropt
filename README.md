@@ -14,7 +14,7 @@ Then, you can use the command-line tool as follows:
 
 where ``WEIGHT_VECTOR`` is a parameters for the objective function and ``INITIAL_HUES`` are initial guesses for the hue values for the optimal colors, given as a comma-separated list. Every option has a default, so ``uv run coloropt.py`` on its own also works. If ``--hues`` is omitted, the initial hues are a random permutation of ``--n_colors`` evenly spaced hues (6 by default), and ``--seed`` makes them reproducible. The seed used is always written to the log.
 
-After optimizing, the colors are reordered so that each leading sub-palette (the first 2, first 3, and so on) scores well. The log and a palette figure are saved to ``logs/LOG_NAME.log`` and ``logs/LOG_NAME.png``, and the figure is also shown in a window.
+After optimizing, the colors are reordered so that each leading sub-palette (the first 2, first 3, and so on) scores well. Pass ``--no_reorder`` to sort them by hue instead. The log and a palette figure are saved to ``logs/LOG_NAME.log`` and ``logs/LOG_NAME.png``, and the figure is also shown in a window.
 
 Example usage with fixed initial hues:
 
