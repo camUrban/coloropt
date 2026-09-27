@@ -2,17 +2,15 @@ import colour
 import numpy as np
 import itertools
 
-# Colors are sRGB arrays in [0, 1]. Lab is taken relative to D65, as colormath did.
-D50 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D50']
+# Colors are sRGB arrays in [0, 1]. Lab and LCh are relative to D65, sRGB's white point.
 D65 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
 
 def srgb_to_lab(rgb):
     return colour.XYZ_to_Lab(colour.sRGB_to_XYZ(rgb), illuminant=D65)
 
 def lch_to_srgb(l, c, h):
-    # Matches colormath: the LCh input is D50 and gets Bradford-adapted to sRGB's D65.
-    xyz = colour.Lab_to_XYZ(colour.LCHab_to_Lab([l, c, h]), illuminant=D50)
-    return colour.XYZ_to_sRGB(xyz, illuminant=D50, chromatic_adaptation_transform='Bradford')
+    xyz = colour.Lab_to_XYZ(colour.LCHab_to_Lab([l, c, h]), illuminant=D65)
+    return colour.XYZ_to_sRGB(xyz, illuminant=D65)
 
 def pairwise_delta_e(labs):
     n = len(labs)
