@@ -4,6 +4,7 @@ import os
 import uuid
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
 
 from scipy.optimize import minimize
 from colortools import *
@@ -68,6 +69,28 @@ def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logname):
     for l, c, h in zip(*[iter(res.x)]*3):
         colors.append(clamp(lch_to_srgb(l, c, h)))
     root.info(f'Score={multicolor_cost(colors, weights)} colors: {list(map(lambda x: tuple(int(v) for v in np.floor(0.5 + x*255)), colors))}')
+
+    # Palette figure in the style of the blog post: the seed colors the optimizer started from, the
+    # colors, then how they look in grayscale and to the two colorblind simulations.
+    seeds = [clamp(lch_to_srgb(l, c, h)) for l, c, h in zip(*[iter(x0)]*3)]
+    grid = np.array([seeds,
+                     colors,
+                     [to_grayscale(c) for c in colors],
+                     [to_colorblind_g(c) for c in colors],
+                     [to_colorblind_r(c) for c in colors]])
+    fig, ax = plt.subplots(figsize=(0.8*len(colors) + 1.5, 4.2))
+    ax.imshow(grid, interpolation='nearest')
+    ax.set_xticks([])
+    ax.set_yticks(range(5), ['Seed', 'Normal', 'Grayscale', 'Colorblind (g)', 'Colorblind (r)'])
+    ax.tick_params(left=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_xlabel(f'{len(colors)} colors')
+    fig.tight_layout()
+    fig_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', f'{logname}.png')
+    fig.savefig(fig_filename, dpi=150)
+    root.info(f'Saved palette figure to {fig_filename}')
+    plt.show()
 
     file_handler.close()
     console_handler.close()
