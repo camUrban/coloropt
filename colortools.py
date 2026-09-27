@@ -25,9 +25,10 @@ black_lab = srgb_to_lab(np.zeros(3))
 white_lab = srgb_to_lab(np.ones(3))
 
 def to_grayscale(rgb):
-    r, g, b = rgb
-    gray_level = 0.21*r + 0.72*g + 0.07*b
-    return np.array([gray_level, gray_level, gray_level])
+    # The neutral gray with the same perceptual lightness L*.
+    lab = srgb_to_lab(rgb)
+    lab[..., 1:] = 0
+    return colour.XYZ_to_sRGB(colour.Lab_to_XYZ(lab, illuminant=D65), illuminant=D65)
 
 def clamp(rgb):
     return np.clip(rgb, 0, 1)
@@ -46,28 +47,23 @@ def to_colorblind_r(rgb):
     b_ = np.power(782.74+0.992052*(b**2.2)-0.003974*(g**2.2)+0.003974*(r**2.2), 1/2.2)
     return np.array([r_, g_, b_]) / 255
 
-def window_stack(a, stepsize=1, width=3):
-    n = a.shape[0]
-    return np.hstack( a[i:1+n+i-width:stepsize] for i in range(0, width))
-
 def anglediff(h1, h2):
     x, y = h1*np.pi/180, h2*np.pi/180
     return np.abs(np.arctan2(np.sin(x-y), np.cos(x-y))) * 180 / np.pi
 
-def avg_cost(costs):
-    n = costs.shape[0]
-    avg_costs = []
-    for window in range(2, n):
-        window_costs = []
-        for i in range(n-window):
-            window_costs.extend(window_stack(costs[i, i+1:], 1, window).reshape(-1, window).sum(axis=1))
-        avg_costs.append(np.mean(window_costs)/window)
-    if not avg_costs:
-        return 1
-    return 1 - np.mean(avg_costs)
-
-def multicolor_cost(colors, weights):    
+def multicolor_cost(colors, weights):
     return np.sum(multicolor_cost_debug(colors, weights))/np.sum(weights)
+
+def subpalette_order(colors, weights):
+    # Greedy order so that every leading sub-palette (first 2, first 3, ...) scores well: start
+    # from the best pair, then repeatedly append the color that gives the best next sub-palette.
+    n = len(colors)
+    order = list(max(itertools.combinations(range(n), 2),
+                     key=lambda p: multicolor_cost([colors[i] for i in p], weights)))
+    while len(order) < n:
+        rest = [i for i in range(n) if i not in order]
+        order.append(max(rest, key=lambda i: multicolor_cost([colors[j] for j in order + [i]], weights)))
+    return order
 
 def multicolor_cost_debug(colors, weights):
     scores = np.zeros(31)
