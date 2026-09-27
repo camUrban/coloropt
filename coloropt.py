@@ -6,7 +6,6 @@ import numpy as np
 
 from scipy.optimize import minimize
 from colortools import *
-from colormath.color_objects import *
 
 
 @click.command()
@@ -33,7 +32,7 @@ def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logdir):
                 return 0
             if c > c_to or c < c_from:
                 return 0
-            colors.append(clamp(LCHabColor(l, c, h)))
+            colors.append(clamp(lch_to_srgb(l, c, h)))
         return -multicolor_cost(colors, weights)
 
     #  set up logging
@@ -61,8 +60,8 @@ def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logdir):
     res = minimize(cost_function, x0, method='Powell', tol=1e-9, options={'maxfev': len(x0)*10000, 'disp': True})
     colors = []
     for l, c, h in zip(*[iter(res.x)]*3):
-        colors.append(convert_color(clamp(LCHabColor(l, c, h)), sRGBColor))
-    root.info(f'Score={multicolor_cost(colors, weights)} colors: {list(map(lambda x: x.get_upscaled_value_tuple(), colors))}')            
+        colors.append(clamp(lch_to_srgb(l, c, h)))
+    root.info(f'Score={multicolor_cost(colors, weights)} colors: {list(map(lambda x: tuple(int(v) for v in np.floor(0.5 + x*255)), colors))}')
 
     file_handler.close()
     console_handler.close()

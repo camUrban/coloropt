@@ -4,13 +4,9 @@ This code accompanies [my blogpost](http://tsitsul.in/blog/coloropt/) on color o
 
 ### Basic usage
 
-First, install the requirements:
+First, install the dependencies:
 
-    pip install -r requirements.txt
-
-or simply
-
-    pip install colormath numpy click
+    uv sync
 
 Then, you can use the command-line tool as follows:
 

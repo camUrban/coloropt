@@ -1,55 +1,52 @@
-from colormath import color_diff
-from colormath.color_objects import sRGBColor, LabColor, HSVColor, CMYKColor, LCHabColor
-from colormath.color_conversions import convert_color
+import colour
 import numpy as np
 import itertools
 
-black_lab = convert_color(sRGBColor(0, 0, 0), LabColor)
-white_lab = convert_color(sRGBColor(1, 1, 1), LabColor)
+# Colors are sRGB arrays in [0, 1]. Lab is taken relative to D65, as colormath did.
+D50 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D50']
+D65 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
 
-def to_grayscale(color):
-    if type(color) != sRGBColor:
-        color_rgb = convert_color(color, sRGBColor)
-    else:
-        color_rgb = color
-    r, g, b = color_rgb.get_value_tuple()
+def srgb_to_lab(rgb):
+    return colour.XYZ_to_Lab(colour.sRGB_to_XYZ(rgb), illuminant=D65)
+
+def lch_to_srgb(l, c, h):
+    # Matches colormath: the LCh input is D50 and gets Bradford-adapted to sRGB's D65.
+    xyz = colour.Lab_to_XYZ(colour.LCHab_to_Lab([l, c, h]), illuminant=D50)
+    return colour.XYZ_to_sRGB(xyz, illuminant=D50, chromatic_adaptation_transform='Bradford')
+
+def pairwise_delta_e(labs):
+    n = len(labs)
+    i, j = np.triu_indices(n, k=1)
+    dist = colour.delta_E(labs[i], labs[j], method='CIE 2000')
+    cdists = np.zeros((n, n))
+    cdists[i, j] = dist
+    cdists[j, i] = dist
+    return cdists
+
+black_lab = srgb_to_lab(np.zeros(3))
+white_lab = srgb_to_lab(np.ones(3))
+
+def to_grayscale(rgb):
+    r, g, b = rgb
     gray_level = 0.21*r + 0.72*g + 0.07*b
-    gray_srgb = sRGBColor(gray_level, gray_level, gray_level)
-    return gray_srgb if type(color) == sRGBColor else convert_color(gray_srgb, type(color))
+    return np.array([gray_level, gray_level, gray_level])
 
-def clamp(color):
-    if type(color) != sRGBColor:
-        color_rgb = convert_color(color, sRGBColor)
-    else:
-        color_rgb = color
-    rgb = np.array(color_rgb.get_value_tuple())
-    rgb = np.clip(rgb, 0, 1)
-    clamped_srgb = sRGBColor(*rgb)
-    return clamped_srgb if type(color) == sRGBColor else convert_color(clamped_srgb, type(color))
+def clamp(rgb):
+    return np.clip(rgb, 0, 1)
 
-def to_colorblind_g(color):
-    if type(color) != sRGBColor:
-        color_rgb = convert_color(color, sRGBColor)
-    else:
-        color_rgb = color
-    r, g, b = color_rgb.get_upscaled_value_tuple()
+def to_colorblind_g(rgb):
+    r, g, b = np.floor(0.5 + np.asarray(rgb)*255)
     r_ = np.power(4211.106+0.6770*(g**2.2)+0.2802*(r**2.2), 1/2.2)
     g_ = np.power(4211.106+0.6770*(g**2.2)+0.2802*(r**2.2), 1/2.2)
     b_ = np.power(4211.106+0.95724*(b**2.2)+0.02138*(g**2.2)-0.02138*(r**2.2), 1/2.2)
-    gray_srgb = sRGBColor(r_, g_, b_, True)
-    return gray_srgb if type(color) == sRGBColor else convert_color(gray_srgb, type(color))
+    return np.array([r_, g_, b_]) / 255
 
-def to_colorblind_r(color):
-    if type(color) != sRGBColor:
-        color_rgb = convert_color(color, sRGBColor)
-    else:
-        color_rgb = color
-    r, g, b = color_rgb.get_upscaled_value_tuple()
+def to_colorblind_r(rgb):
+    r, g, b = np.floor(0.5 + np.asarray(rgb)*255)
     r_ = np.power(782.74+0.8806*(g**2.2)+0.1115*(r**2.2), 1/2.2)
     g_ = np.power(782.74+0.8806*(g**2.2)+0.1115*(r**2.2), 1/2.2)
     b_ = np.power(782.74+0.992052*(b**2.2)-0.003974*(g**2.2)+0.003974*(r**2.2), 1/2.2)
-    gray_srgb = sRGBColor(r_, g_, b_, True)
-    return gray_srgb if type(color) == sRGBColor else convert_color(gray_srgb, type(color))
+    return np.array([r_, g_, b_]) / 255
 
 def window_stack(a, stepsize=1, width=3):
     n = a.shape[0]
@@ -76,110 +73,62 @@ def multicolor_cost(colors, weights):
 
 def multicolor_cost_debug(colors, weights):
     scores = np.zeros(31)
+    colors = np.asarray(colors)
     ncolors = len(colors)
     weights = np.array(weights)
-    
-    colors_lab = []
-    for color in colors:
-        colors_lab.append(convert_color(color, LabColor))
-            
-    cdists = np.zeros((ncolors, ncolors))
-    for i in range(ncolors):
-        for j in range(i+1, ncolors):
-            dist = color_diff.delta_e_cie2000(colors_lab[i], colors_lab[j]) / 116
-            cdists[i, j] = dist
-            cdists[j, i] = dist
-    
+
+    colors_lab = srgb_to_lab(colors)
+    cdists = pairwise_delta_e(colors_lab) / 116
+
     quantiles = np.quantile(cdists[~np.eye(ncolors, dtype=bool)], [0, 0.25, 0.5, 0.75, 1])
     scores[0:5] = weights[0:5]*quantiles
-    
-    colors_lch = []
-    for color in colors:
-        colors_lch.append(convert_color(color, LCHabColor))
+
+    colors_lch = colour.Lab_to_LCHab(colors_lab)
 
     cdists = np.zeros((ncolors, ncolors))
     for i in range(ncolors):
         for j in range(i+1, ncolors):
-            dist = anglediff(colors_lch[i].lch_h, colors_lch[j].lch_h)
+            dist = anglediff(colors_lch[i, 2], colors_lch[j, 2])
             cdists[i, j] = dist
             cdists[j, i] = dist
 
     reals = np.quantile(cdists[~np.eye(ncolors, dtype=bool)], [0, 0.25, 0.5, 0.75, 1])
     opts = np.array([2/ncolors, 0.25, 0.5, 0.75, 1])*360/2
     scores[5:10] = weights[5:10]*(1-np.abs(opts-reals)/opts)
-        
-    colors_hsv = []
-    for color in colors:
-        colors_hsv.append(convert_color(color, HSVColor))
-                
+
     if weights[10] > 0 or weights[11] > 0:
-        min_dist = 1000
-        for color_lab in colors_lab:
-            dist = color_diff.delta_e_cie2000(color_lab, white_lab) / 100
-            if dist < min_dist:
-                min_dist = dist
-            scores[11] += weights[11] * dist / ncolors
-        scores[10] = weights[10] * min_dist
-    
+        dists = colour.delta_E(colors_lab, white_lab, method='CIE 2000') / 100
+        scores[11] = weights[11] * np.sum(dists) / ncolors
+        scores[10] = weights[10] * np.min(dists)
+
     if weights[12] > 0 or weights[13] > 0:
-        min_dist = 1000
-        for color_lab in colors_lab:
-            dist = color_diff.delta_e_cie2000(color_lab, black_lab) / 100
-            if dist < min_dist:
-                min_dist = dist
-            scores[13] += weights[13] * dist / ncolors
-        scores[12] = weights[12] * min_dist
-            
-    colors_gray = []
-    for color_lab in colors_lab:
-        colors_gray.append(to_grayscale(color_lab))
-    
+        dists = colour.delta_E(colors_lab, black_lab, method='CIE 2000') / 100
+        scores[13] = weights[13] * np.sum(dists) / ncolors
+        scores[12] = weights[12] * np.min(dists)
+
+    colors_gray = srgb_to_lab(np.array([to_grayscale(rgb) for rgb in colors]))
+
     if np.any(weights[14:19]>0):
-        cdists = np.zeros((ncolors, ncolors))
-        for i in range(ncolors):
-            for j in range(i+1, ncolors):
-                dist = color_diff.delta_e_cie2000(colors_gray[i], colors_gray[j]) / 116
-                cdists[i, j] = dist
-                cdists[j, i] = dist
+        cdists = pairwise_delta_e(colors_gray) / 116
 
         quantiles = np.quantile(cdists[~np.eye(ncolors, dtype=bool)], [0, 0.25, 0.5, 0.75, 1])
         scores[14:19] = weights[14:19]*quantiles
-                
+
     if weights[19] > 0 or weights[20] > 0:
-        min_dist = 1000
-        for color_lab in colors_gray:
-            dist = color_diff.delta_e_cie2000(color_lab, white_lab) / 100
-            if dist < min_dist:
-                min_dist = dist
-            scores[20] += weights[20] * dist / ncolors
-        scores[19] = weights[19] * min_dist
-    
+        dists = colour.delta_E(colors_gray, white_lab, method='CIE 2000') / 100
+        scores[20] = weights[20] * np.sum(dists) / ncolors
+        scores[19] = weights[19] * np.min(dists)
+
     if np.any(weights[21:26]>0):
-        colors_cb_g = []
-        for color_lab in colors_lab:
-            colors_cb_g.append(to_colorblind_g(color_lab))
-            
-        cdists = np.zeros((ncolors, ncolors))
-        for i in range(ncolors):
-            for j in range(i+1, ncolors):
-                dist = color_diff.delta_e_cie2000(colors_cb_g[i], colors_cb_g[j]) / 116
-                cdists[i, j] = dist
-                cdists[j, i] = dist
+        colors_cb_g = srgb_to_lab(np.array([to_colorblind_g(rgb) for rgb in colors]))
+        cdists = pairwise_delta_e(colors_cb_g) / 116
 
         quantiles = np.quantile(cdists[~np.eye(ncolors, dtype=bool)], [0, 0.25, 0.5, 0.75, 1])
         scores[21:26] = weights[21:26]*quantiles
-    
+
     if np.any(weights[26:31]>0):
-        colors_cb_r = []
-        for color_lab in colors_lab:
-            colors_cb_r.append(to_colorblind_r(color_lab))
-            
-        cdists = np.zeros((ncolors, ncolors))
-        for i in range(ncolors):
-            for j in range(i+1, ncolors):
-                dist = color_diff.delta_e_cie2000(colors_cb_r[i], colors_cb_r[j]) / 116
-                cdists[i, j] = dist
-                cdists[j, i] = dist
+        colors_cb_r = srgb_to_lab(np.array([to_colorblind_r(rgb) for rgb in colors]))
+        cdists = pairwise_delta_e(colors_cb_r) / 116
 
         quantiles = np.quantile(cdists[~np.eye(ncolors, dtype=bool)], [0, 0.25, 0.5, 0.75, 1])
         scores[26:31] = weights[26:31]*quantiles
