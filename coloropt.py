@@ -12,7 +12,7 @@ from scipy.optimize import minimize
 from colortools import *
 
 
-# The cost function and optimizer run live at module level so worker processes can use them.
+# The cost function and single-start optimizer live at module level so worker processes can use them.
 def cost_function(x, weights, bounds):
     l_from, l_to, c_from, c_to, h_from, h_to = bounds
     colors = []
@@ -101,47 +101,57 @@ def main(weights, hues, n_colors, seed, restarts, workers, reorder, c_from, c_to
         start_hues = h_from + spacing * (rng.random() + rng.permutation(n))
         starts.append(np.column_stack([rng.uniform(l_from, l_to, n), rng.uniform(c_from, c_to, n), start_hues]).ravel())
     results = [None] * len(starts)
+
+    def log_start(i):
+        x, fun, nfev = results[i]
+        start_colors = [tuple(int(v) for v in np.floor(0.5 + clamp(lch_to_srgb(l, c, h))*255))
+                        for l, c, h in zip(*[iter(x)]*3)]
+        root.info(f'Start {i+1}/{len(starts)}: score={-fun} evaluations={nfev} colors: {start_colors}')
+
     if workers <= 1:
         for i, start in enumerate(starts):
             results[i] = run_start(start, weights, bounds)
-            root.info(f'Start {i+1}/{len(starts)}: score={-results[i][1]} evaluations={results[i][2]}')
+            log_start(i)
     else:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(run_start, start, weights, bounds): i for i, start in enumerate(starts)}
             for future in as_completed(futures):
                 i = futures[future]
                 results[i] = future.result()
-                root.info(f'Start {i+1}/{len(starts)}: score={-results[i][1]} evaluations={results[i][2]}')
-    best = int(np.argmin([fun for _, fun, _ in results]))
-    x0 = starts[best]
-    root.info(f'Best start: {best+1}')
-    colors = []
-    for l, c, h in zip(*[iter(results[best][0])]*3):
-        colors.append(clamp(lch_to_srgb(l, c, h)))
-    seeds = [clamp(lch_to_srgb(l, c, h)) for l, c, h in zip(*[iter(x0)]*3)]
-    if reorder:
-        order = subpalette_order(colors, weights)
-    else:
-        order = np.argsort(colour.Lab_to_LCHab(srgb_to_lab(np.array(colors)))[:, 2])
-    colors = [colors[i] for i in order]
-    seeds = [seeds[i] for i in order]
-    root.info(f'Score={multicolor_cost(colors, weights)} colors: {list(map(lambda x: tuple(int(v) for v in np.floor(0.5 + x*255)), colors))}')
+                log_start(i)
+    ranking = np.argsort([fun for _, fun, _ in results])
+    root.info(f'Best start: {ranking[0]+1}')
 
-    # Palette figure in the style of the blog post: the seed colors the optimizer started from, the
-    # colors, then how they look in grayscale and to the two colorblind simulations.
-    grid = np.array([seeds,
-                     colors,
-                     [to_grayscale(c) for c in colors],
-                     [to_colorblind_g(c) for c in colors],
-                     [to_colorblind_r(c) for c in colors]])
-    fig, ax = plt.subplots(figsize=(0.8*len(colors) + 1.5, 4.2))
-    ax.imshow(grid, interpolation='nearest')
-    ax.set_xticks([])
-    ax.set_yticks(range(5), ['Seed', 'Normal', 'Grayscale', 'Colorblind (g)', 'Colorblind (r)'])
-    ax.tick_params(left=False)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.set_xlabel(f'{len(colors)} colors')
+    # Palette figure in the style of the blog post, one panel per start from best to worst (top 10
+    # only): the seed colors the optimizer started from, the colors, then how they look in grayscale
+    # and to the two colorblind simulations.
+    shown = ranking[:10]
+    fig, axes = plt.subplots(len(shown), 1, figsize=(0.8*n + 1.5, 4.2*len(shown)), squeeze=False)
+    for rank, (i, ax) in enumerate(zip(shown, axes[:, 0])):
+        colors = [clamp(lch_to_srgb(l, c, h)) for l, c, h in zip(*[iter(results[i][0])]*3)]
+        seeds = [clamp(lch_to_srgb(l, c, h)) for l, c, h in zip(*[iter(starts[i])]*3)]
+        if reorder:
+            order = subpalette_order(colors, weights)
+        else:
+            order = np.argsort(colour.Lab_to_LCHab(srgb_to_lab(np.array(colors)))[:, 2])
+        colors = [colors[j] for j in order]
+        seeds = [seeds[j] for j in order]
+        score = multicolor_cost(colors, weights)
+        if rank == 0:
+            root.info(f'Score={score} colors: {list(map(lambda x: tuple(int(v) for v in np.floor(0.5 + x*255)), colors))}')
+        grid = np.array([seeds,
+                         colors,
+                         [to_grayscale(c) for c in colors],
+                         [to_colorblind_g(c) for c in colors],
+                         [to_colorblind_r(c) for c in colors]])
+        ax.imshow(grid, interpolation='nearest')
+        ax.set_xticks([])
+        ax.set_yticks(range(5), ['Seed', 'Normal', 'Grayscale', 'Colorblind (g)', 'Colorblind (r)'])
+        ax.tick_params(left=False)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_title(f'Start {i+1} (rank {rank+1}, score {score:.4f})')
+    axes[-1, 0].set_xlabel(f'{n} colors')
     fig.tight_layout()
     fig_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', f'{logname}.png')
     fig.savefig(fig_filename, dpi=150)
