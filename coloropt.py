@@ -1,5 +1,6 @@
 import click
 import logging
+import os
 import uuid
 import sys
 import numpy as np
@@ -17,8 +18,8 @@ from colortools import *
 @click.option('--h_to', type=float, default=360, help='d')
 @click.option('--l_from', type=float, default=1, help='a')
 @click.option('--l_to', type=float, default=1, help='b')
-@click.option('--logdir', type=str, default='logs', help='d')
-def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logdir):
+@click.option('--logname', type=str, default=None, help='log file name in logs/, without .log (default: random run id)')
+def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logname):
     weights = np.array(weights)
     hues = np.array(hues)
 
@@ -39,10 +40,11 @@ def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logdir):
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
-    run_id = uuid.uuid4().hex[:16]
+    if logname is None:
+        logname = uuid.uuid4().hex[:16]
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    log_filename = f'{logdir}/{run_id}.log'
+    log_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', f'{logname}.log')
     file_handler = logging.FileHandler(log_filename)
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
