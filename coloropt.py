@@ -10,18 +10,22 @@ from colortools import *
 
 
 @click.command()
-@click.argument('weights', type=int, nargs=31)
-@click.argument('hues', type=int, nargs=-1)
-@click.option('--c_from', type=float, default=1, help='a')
-@click.option('--c_to', type=float, default=1, help='b')
+@click.option('--weights', type=int, nargs=31,
+              default=(500, 100, 75, 50, 25, 100, 75, 50, 25, 10, 25, 10, 20, 10, 1000, 100,
+                       50, 25, 10, 30, 10, 350, 150, 100, 50, 25, 200, 100, 50, 25, 10),
+              help='31 objective weights')
+@click.option('--hues', type=str, default='40,200,240,360',
+              help='comma-separated initial hues, one per color')
+@click.option('--c_from', type=float, default=50, help='a')
+@click.option('--c_to', type=float, default=75, help='b')
 @click.option('--h_from', type=float, default=0, help='c')
 @click.option('--h_to', type=float, default=360, help='d')
-@click.option('--l_from', type=float, default=1, help='a')
-@click.option('--l_to', type=float, default=1, help='b')
+@click.option('--l_from', type=float, default=40, help='a')
+@click.option('--l_to', type=float, default=75, help='b')
 @click.option('--logname', type=str, default=None, help='log file name in logs/, without .log (default: random run id)')
 def main(weights, hues, c_from, c_to, h_from, h_to, l_from, l_to, logname):
     weights = np.array(weights)
-    hues = np.array(hues)
+    hues = np.array([int(h) for h in hues.split(',')])
 
     
     def cost_function(x):
